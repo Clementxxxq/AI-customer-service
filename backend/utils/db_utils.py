@@ -18,16 +18,19 @@ def get_db_connection():
     Context manager for database connections
     Ensures connections are properly closed
     """
+    conn = None
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
         yield conn
         conn.commit()
     except sqlite3.Error as e:
-        conn.rollback()
+        if conn:
+            conn.rollback()
         raise DatabaseError(f"Database error: {str(e)}")
     finally:
-        conn.close()
+        if conn:
+            conn.close()
 
 
 def execute_query(query: str, params: tuple = ()) -> List[Dict[str, Any]]:
