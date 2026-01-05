@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse
 from routes.services import router as services_router
 from routes.doctors import router as doctors_router
 from routes.customers import router as customers_router
+from routes.chat import router as chat_router
 from config.settings import (
     API_TITLE,
     API_VERSION,
@@ -51,6 +52,7 @@ def health_check():
 app.include_router(services_router, prefix="/api/services")
 app.include_router(doctors_router, prefix="/api/doctors")
 app.include_router(customers_router, prefix="/api/customers")
+app.include_router(chat_router, prefix="/api")
 
 
 # Error handlers
