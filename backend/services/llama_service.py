@@ -122,7 +122,12 @@ Output ONLY JSON (no explanations, no text)."""
             if entities and "date" in entities:
                 entities["date"] = LlamaService._normalize_date(entities["date"])
             
-            # Build response
+            # Convert empty strings and "null" strings to None in entities
+            for key in entities:
+                if entities[key] == "" or entities[key] == "null":
+                    entities[key] = None
+            
+            # Build response - pass entity dict directly, not AIEntity object
             return LlamaResponse(
                 intent=parsed.get("intent", "other"),
                 confidence=float(parsed.get("confidence", 0.5)),
