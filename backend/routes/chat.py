@@ -1,11 +1,13 @@
 """
-Chat API routes - Mock implementation without AI
+Chat API routes - Real Llama AI implementation
+Uses Llama3.2:3b for NLU (Natural Language Understanding)
+Converts user messages to structured JSON intent+entities
 """
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Dict, Any
 from datetime import datetime
-import random
+from services.llama_service import LlamaService
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -24,35 +26,25 @@ class ChatResponse(BaseModel):
     bot_response: str
     timestamp: str
     conversation_id: str
-
-
-# Mock responses database
-MOCK_RESPONSES = [
-    "That's a great question! Our clinic offers comprehensive dental services including cleaning, extractions, and orthodontics.",
-    "I'd recommend booking an appointment with Dr. Wang or Dr. Li. Both are highly experienced professionals.",
-    "We're open Monday to Friday from 9:00 AM to 6:00 PM. What time works best for you?",
-    "Our cleaning service costs $200 and takes about 30 minutes. Would you like to schedule one?",
-    "I'm here to help! Feel free to ask about our services, doctors, or appointment availability.",
-    "For urgent dental issues, please call us directly at our clinic. We can usually fit emergency cases within an hour.",
-    "All our dentists are board-certified with years of experience in their respective specializations.",
-    "We accept most insurance plans. I can help verify your coverage if you provide your insurance details.",
-]
+    intent: Optional[str] = None
+    confidence: Optional[float] = None
+    entities: Optional[Dict[str, Any]] = None
 
 
 @router.post("/message", response_model=ChatResponse)
 def send_message(message: ChatMessage):
     """
-    Send a chat message to the mock chatbot
+    Send a chat message to Llama AI
     
     Args:
         message: User message containing content and optional user_id
     
     Returns:
-        ChatResponse with bot's mock response
+        ChatResponse with AI response based on NLU parsing
     
     Example:
         {
-            "content": "What services do you offer?",
+            "content": "I want to book an appointment with Dr. Wang tomorrow at 2 PM",
             "user_id": 1,
             "conversation_id": "conv_123"
         }
@@ -63,18 +55,46 @@ def send_message(message: ChatMessage):
             detail="Message content cannot be empty"
         )
     
-    # Generate mock response
-    bot_response = random.choice(MOCK_RESPONSES)
-    conversation_id = message.conversation_id or f"conv_{datetime.now().timestamp()}"
-    message_id = f"msg_{datetime.now().timestamp()}"
-    
-    return ChatResponse(
-        message_id=message_id,
-        user_message=message.content,
-        bot_response=bot_response,
-        timestamp=datetime.now().isoformat(),
-        conversation_id=conversation_id
-    )
+    try:
+        # Parse user message using Llama NLU
+        llama_response = LlamaService.parse_user_input(message.content)
+        
+        # Generate bot response based on parsed intent
+        bot_response = LlamaService.generate_bot_response(
+            llama_response.intent,
+            llama_response.entities
+        )
+        
+        # Generate message ID and conversation ID
+        conversation_id = message.conversation_id or f"conv_{datetime.now().timestamp()}"
+        message_id = f"msg_{datetime.now().timestamp()}"
+        
+        return ChatResponse(
+            message_id=message_id,
+            user_message=message.content,
+            bot_response=bot_response,
+            timestamp=datetime.now().isoformat(),
+            conversation_id=conversation_id,
+            intent=llama_response.intent,
+            confidence=llama_response.confidence,
+            entities=llama_response.entities
+        )
+        
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid input: {str(e)}"
+        )
+    except RuntimeError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"AI service error: {str(e)}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Server error: {str(e)}"
+        )
 
 
 @router.get("/conversations/{conversation_id}")
