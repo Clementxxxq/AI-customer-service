@@ -1,13 +1,18 @@
 """
-Chat API routes - Real AI with Business Logic
+Chat API routes - Real AI with Business Logic + Dialogue State Management
 Uses Llama3.2:3b for NLU + AppointmentService for actions
-Full integration: NLU → Business Logic → Response
+Full integration: NLU → Dialogue State → Business Logic → Response
 """
 from fastapi import APIRouter, HTTPException, status
 from typing import Optional, Dict, Any
 from datetime import datetime
 from services.llama_service import LlamaService
 from services.appointment_service import AppointmentService
+from services.dialogue_service import (
+    get_or_create_dialogue_state, save_dialogue_state, 
+    merge_entities_with_state, determine_next_question, 
+    is_appointment_ready
+)
 from schemas.chat import ChatRequest, ChatResponse, AIEntity
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -16,13 +21,16 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 @router.post("/message", response_model=ChatResponse)
 def send_message(message: ChatRequest):
     """
-    Send a chat message → NLU parsing → Business logic execution
+    Send a chat message with dialogue state management
     
     Flow:
-    1. Parse user input with Llama NLU
-    2. Execute appropriate business logic based on intent
-    3. Generate contextual response
-    4. Return structured response with action result
+    1. Get or create dialogue state for this conversation
+    2. Parse user input with Llama NLU
+    3. Merge entities with dialogue state (remember context)
+    4. Determine next action (ask for info or execute booking)
+    5. Generate contextual response
+    6. Save dialogue state for next turn
+    7. Return response
     """
     if not message.content or not message.content.strip():
         raise HTTPException(
@@ -31,25 +39,55 @@ def send_message(message: ChatRequest):
         )
     
     try:
+        # Step 0: Get conversation context
+        conversation_id = message.conversation_id or f"conv_{datetime.now().timestamp()}"
+        dialogue_state = get_or_create_dialogue_state(conversation_id)
+        
         # Step 1: Parse user message using Llama NLU
         llama_response = LlamaService.parse_user_input(message.content)
         
-        # Step 2: Execute business logic based on intent
-        action_result = _execute_business_logic(
-            intent=llama_response.intent,
-            entities=llama_response.entities,
-            user_id=message.user_id
+        # Step 2: Merge new entities with dialogue state (remember context)
+        merged_entities = merge_entities_with_state(
+            llama_response.entities.dict() if hasattr(llama_response.entities, 'dict') else llama_response.entities,
+            conversation_id
         )
         
-        # Step 3: Generate contextual bot response
-        bot_response = _generate_response(
-            intent=llama_response.intent,
-            entities=llama_response.entities,
-            action_result=action_result
-        )
+        # Update dialogue state with merged entities
+        dialogue_state.intent = llama_response.intent
+        dialogue_state.collected_entities = merged_entities
         
-        # Step 4: Return structured response
-        conversation_id = message.conversation_id or f"conv_{datetime.now().timestamp()}"
+        # Step 3: Determine if we need more info or can execute
+        next_question = determine_next_question(llama_response.intent, merged_entities)
+        
+        # Step 4: Execute business logic if we have all info, or just ask the next question
+        action_result = None
+        if next_question:
+            # Still collecting information - don't execute business logic yet
+            dialogue_state.current_question = next_question
+            bot_response = next_question
+        else:
+            # We have all required info - execute business logic
+            action_result = _execute_business_logic(
+                intent=llama_response.intent,
+                entities=merged_entities,
+                user_id=message.user_id
+            )
+            
+            # Generate final response
+            bot_response = _generate_response(
+                intent=llama_response.intent,
+                entities=merged_entities,
+                action_result=action_result
+            )
+            
+            # Clear state after booking
+            if llama_response.intent == "appointment" and action_result.get("success"):
+                dialogue_state.collected_entities = {}
+        
+        # Step 5: Save dialogue state
+        save_dialogue_state(dialogue_state)
+        
+        # Step 6: Return structured response
         message_id = f"msg_{datetime.now().timestamp()}"
         
         return ChatResponse(
@@ -60,7 +98,7 @@ def send_message(message: ChatRequest):
             conversation_id=conversation_id,
             intent=llama_response.intent,
             confidence=llama_response.confidence,
-            entities=llama_response.entities,
+            entities=merged_entities,
             action_result=action_result
         )
         

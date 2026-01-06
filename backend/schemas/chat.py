@@ -2,8 +2,8 @@
 Schema definitions for AI output validation
 Ensures structured, type-safe data flow from AI to business logic
 """
-from pydantic import BaseModel, Field, validator
-from typing import Optional, List
+from pydantic import BaseModel, Field, validator, root_validator
+from typing import Optional, List, Dict, Any, Union
 from datetime import datetime, date
 from enum import Enum
 
@@ -143,8 +143,16 @@ class ChatResponse(BaseModel):
     conversation_id: str
     intent: str = Field(..., description="Parsed intent")
     confidence: float = Field(..., description="Confidence score 0-1")
-    entities: AIEntity = Field(..., description="Extracted entities")
+    entities: Union[AIEntity, Dict[str, Any]] = Field(..., description="Extracted entities")
     action_result: Optional[dict] = Field(None, description="Result of business logic execution")
+    
+    @root_validator(pre=True)
+    def convert_entities_to_dict(cls, values):
+        """Convert AIEntity to dict if needed for dialogue state compatibility"""
+        entities = values.get('entities')
+        if isinstance(entities, AIEntity):
+            values['entities'] = entities.dict()
+        return values
     
     class Config:
         schema_extra = {
