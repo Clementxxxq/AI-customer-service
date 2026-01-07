@@ -8,13 +8,14 @@ from typing import Optional, Dict, Any
 from datetime import datetime
 from services.llama_service import LlamaService
 from services.appointment_service import AppointmentService
+from services.availability_service import AvailabilityService
 from services.dialogue_service import (
     get_or_create_dialogue_state, save_dialogue_state, 
     merge_entities_with_state, determine_next_question, 
     is_appointment_ready
 )
 from utils.doctor_validator import normalize_and_validate_doctor
-from schemas.chat import ChatRequest, ChatResponse, AIEntity
+from schemas.chat import ChatRequest, ChatResponse, AIEntity, AppointmentAvailability
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -182,7 +183,30 @@ def send_message(message: ChatRequest):
         # Step 5: Save dialogue state
         save_dialogue_state(dialogue_state)
         
-        # Step 6: Return structured response
+        # Step 6: Generate availability if this is an appointment intent and we need time selection
+        availability = None
+        if llama_response.intent == "appointment" and next_question:
+            # User is booking but hasn't selected time yet
+            # Show available dates and times
+            doctor_id = None
+            if merged_entities.get("doctor"):
+                doctor = AppointmentService.find_doctor_by_name(merged_entities.get("doctor"))
+                if doctor:
+                    doctor_id = doctor.get('id')
+            
+            available_dates = AvailabilityService.get_available_dates(
+                doctor_id=doctor_id,
+                days_ahead=14
+            )
+            
+            if available_dates:
+                suggested = AvailabilityService.get_suggested_appointment(available_dates)
+                availability = AppointmentAvailability(
+                    available_dates=available_dates,
+                    suggested=suggested
+                )
+        
+        # Step 7: Return structured response
         message_id = f"msg_{datetime.now().timestamp()}"
         
         return ChatResponse(
@@ -194,7 +218,8 @@ def send_message(message: ChatRequest):
             intent=llama_response.intent,
             confidence=llama_response.confidence,
             entities=merged_entities,
-            action_result=action_result
+            action_result=action_result,
+            availability=availability
         )
         
     except ValueError as e:

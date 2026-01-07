@@ -6,11 +6,27 @@ import { MessageList } from './MessageList';
 import { InputBox } from './InputBox';
 import './DentalChat.css';
 
+interface TimeSlot {
+  date: string;
+  day_of_week?: string;
+  slots: string[];
+}
+
+interface AvailabilityData {
+  available_dates: TimeSlot[];
+  suggested?: {
+    date: string;
+    time: string;
+  };
+}
+
 interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: string;
+  availability?: AvailabilityData;
+  onSelectDateTime?: (date: string, time: string) => void;
 }
 
 /**
@@ -103,6 +119,17 @@ export function DentalChat() {
     initializeChat();
   }, []);
 
+  /**
+   * Handle date/time selection from calendar
+   */
+  const handleSelectDateTime = (messageId: string, date: string, time: string) => {
+    // Format the message to send to backend
+    const content = `I'd like to book at ${time} on ${date}`;
+    
+    // Send as regular message
+    handleSendMessage(content);
+  };
+
   const handleSendMessage = async (content: string) => {
     if (!content.trim()) return;
 
@@ -127,11 +154,16 @@ export function DentalChat() {
       const data = response.data;
       
       // Add AI response
+      const messageId = data.message_id;
       const aiMessage: Message = {
-        id: data.message_id,
+        id: messageId,
         role: 'assistant',
         content: data.bot_response,
         timestamp: data.timestamp,
+        availability: data.availability,
+        onSelectDateTime: data.availability 
+          ? (date: string, time: string) => handleSelectDateTime(messageId, date, time)
+          : undefined,
       };
 
       setMessages((prev) => [...prev, aiMessage]);

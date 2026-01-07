@@ -136,6 +136,54 @@ class ChatRequest(BaseModel):
     conversation_id: Optional[str] = Field(None, description="Conversation ID")
 
 
+class TimeSlotInfo(BaseModel):
+    """Information about available time slots for a date"""
+    date: str = Field(..., description="Date in YYYY-MM-DD format")
+    day_of_week: Optional[str] = Field(None, description="Day of week (e.g., Monday)")
+    slots: List[str] = Field(..., description="List of available times in HH:MM format")
+
+
+class AvailableAppointmentTime(BaseModel):
+    """Available appointment time (date + time)"""
+    date: str = Field(..., description="Date in YYYY-MM-DD format")
+    time: str = Field(..., description="Time in HH:MM format")
+
+
+class AppointmentAvailability(BaseModel):
+    """Appointment availability data for frontend calendar"""
+    available_dates: List[TimeSlotInfo] = Field(
+        ..., 
+        description="List of dates with available time slots"
+    )
+    suggested: Optional[AvailableAppointmentTime] = Field(
+        None,
+        description="AI-suggested appointment time"
+    )
+    
+    model_config = ConfigDict(
+        json_schema_extra = {
+            "example": {
+                "available_dates": [
+                    {
+                        "date": "2026-01-10",
+                        "day_of_week": "Friday",
+                        "slots": ["09:00", "09:30", "10:00", "14:00", "14:30"]
+                    },
+                    {
+                        "date": "2026-01-11",
+                        "day_of_week": "Saturday",
+                        "slots": ["10:00", "11:00", "15:00"]
+                    }
+                ],
+                "suggested": {
+                    "date": "2026-01-10",
+                    "time": "10:00"
+                }
+            }
+        }
+    )
+
+
 class ChatResponse(BaseModel):
     """Response from chat API"""
     message_id: str
@@ -147,6 +195,10 @@ class ChatResponse(BaseModel):
     confidence: float = Field(..., description="Confidence score 0-1")
     entities: Union[AIEntity, Dict[str, Any]] = Field(..., description="Extracted entities")
     action_result: Optional[dict] = Field(None, description="Result of business logic execution")
+    availability: Optional[AppointmentAvailability] = Field(
+        None,
+        description="Available appointment times for booking (when intent is appointment)"
+    )
     
     @root_validator(pre=True)
     def convert_entities_to_dict(cls, values):
@@ -161,7 +213,7 @@ class ChatResponse(BaseModel):
             "example": {
                 "message_id": "msg_xxx",
                 "user_message": "Book with Dr. Wang tomorrow at 2 PM",
-                "bot_response": "I've successfully booked your appointment...",
+                "bot_response": "I can help you book with Dr. Wang. Here are our available dates and times...",
                 "timestamp": "2026-01-05T10:30:00",
                 "conversation_id": "conv_xxx",
                 "intent": "appointment",
@@ -169,15 +221,25 @@ class ChatResponse(BaseModel):
                 "entities": {
                     "service": "teeth cleaning",
                     "doctor": "Dr. Wang",
-                    "date": "2026-01-06",
-                    "time": "14:00",
+                    "date": None,
+                    "time": None,
                     "customer_name": None,
                     "customer_phone": None,
                     "customer_email": None
                 },
-                "action_result": {
-                    "success": True,
-                    "appointment_id": 1
+                "action_result": None,
+                "availability": {
+                    "available_dates": [
+                        {
+                            "date": "2026-01-10",
+                            "day_of_week": "Friday",
+                            "slots": ["09:00", "09:30", "10:00", "14:00", "14:30"]
+                        }
+                    ],
+                    "suggested": {
+                        "date": "2026-01-10",
+                        "time": "10:00"
+                    }
                 }
             }
         }
