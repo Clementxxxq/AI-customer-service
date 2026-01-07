@@ -2,7 +2,7 @@
 Schema definitions for AI output validation
 Ensures structured, type-safe data flow from AI to business logic
 """
-from pydantic import BaseModel, Field, validator, root_validator
+from pydantic import BaseModel, Field, validator, root_validator, ConfigDict
 from typing import Optional, List, Dict, Any, Union
 from datetime import datetime, date
 from enum import Enum
@@ -44,8 +44,8 @@ class AIResponse(BaseModel):
     entities: AIEntity = Field(..., description="Extracted entities")
     raw_input: Optional[str] = Field(None, description="Original user input")
     
-    class Config:
-        schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra = {
             "example": {
                 "intent": "appointment",
                 "confidence": 0.95,
@@ -61,6 +61,7 @@ class AIResponse(BaseModel):
                 "raw_input": "Book with Dr. Wang tomorrow at 2 PM"
             }
         }
+    )
 
 
 class AppointmentRequest(BaseModel):
@@ -82,8 +83,8 @@ class AppointmentResponse(BaseModel):
     appointment_time: Optional[str] = None
     errors: Optional[List[str]] = None
     
-    class Config:
-        schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra = {
             "example": {
                 "success": True,
                 "message": "Appointment booked successfully",
@@ -93,6 +94,7 @@ class AppointmentResponse(BaseModel):
                 "errors": None
             }
         }
+    )
 
 
 class CancellationRequest(BaseModel):
@@ -154,8 +156,8 @@ class ChatResponse(BaseModel):
             values['entities'] = entities.dict()
         return values
     
-    class Config:
-        schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra = {
             "example": {
                 "message_id": "msg_xxx",
                 "user_message": "Book with Dr. Wang tomorrow at 2 PM",
@@ -179,3 +181,4 @@ class ChatResponse(BaseModel):
                 }
             }
         }
+    )

@@ -4,6 +4,7 @@ Handles conversation context and multi-turn dialogue flow
 """
 from typing import Dict, Any, Optional
 from datetime import datetime
+from utils.doctor_validator import normalize_and_validate_doctor, get_doctor_selection_prompt
 
 # Global dialogue states - keyed by conversation_id
 # In production, use a proper database or cache
@@ -85,6 +86,8 @@ def determine_next_question(
     """
     Determine what question to ask next based on what info is missing
     For appointment intent, required fields: doctor, service, date, time
+    
+    ✅ Doctor question now shows available options
     """
     if intent != "appointment":
         return None
@@ -95,8 +98,11 @@ def determine_next_question(
     for field in required:
         if not collected_entities.get(field):
             # Ask for this field
+            if field == "doctor":
+                # Use product-level doctor selection prompt
+                return get_doctor_selection_prompt()
+            
             questions = {
-                "doctor": "Which doctor would you like to see?",
                 "service": "What service do you need?",
                 "date": "What date would you like?",
                 "time": "What time works for you?"

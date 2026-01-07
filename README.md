@@ -4,6 +4,8 @@
 
 > 🚀 **New to this project?** Start with the [Quick Running Guide](docs/RUNNING_GUIDE.md) to get everything up and running in 5 minutes!
 
+> 📚 **5-Slot System Documentation**: Check [docs/5-SLOTS/START_HERE_5_SLOTS.md](docs/5-SLOTS/START_HERE_5_SLOTS.md) for complete system documentation!
+
 ## 🎯 Project Overview
 
 An AI-powered appointment scheduling system for dental clinics with intelligent NLU (Natural Language Understanding), automated appointment booking, and comprehensive error handling.

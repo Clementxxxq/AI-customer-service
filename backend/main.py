@@ -67,4 +67,15 @@ async def global_exception_handler(request, exc):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    import sys
+    from pathlib import Path
+    
+    # Add parent directory to path so uvicorn can find backend module
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+    
+    uvicorn.run(
+        "backend.main:app",
+        host="127.0.0.1",
+        port=8000,
+        reload=False
+    )
