@@ -21,6 +21,9 @@ class DialogueState:
         self.current_question = None  # What question to ask next
         self.message_count = 0  # How many messages in this conversation
         self.created_at = datetime.now()
+        # ✅ NEW: Booking step state machine
+        # "select_doctor" → "select_service" → "select_date" → "select_time" → "confirm" → "done"
+        self.step = "select_doctor"
         
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for storage"""
