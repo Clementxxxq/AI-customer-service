@@ -73,8 +73,6 @@ def send_message(message: ChatRequest):
         # ═══════════════════════════════════════════════════════
         # 2️⃣ DIALOGUE STATE: Merge with conversation history
         # ═══════════════════════════════════════════════════════
-        # NOTE: merge_entities_with_state() now AUTOMATICALLY saves to state
-        # This ensures multi-turn context is preserved
         dialogue_state = get_or_create_dialogue_state(conversation_id)
         merged_entities = merge_entities_with_state(
             nlu_result.entities,
@@ -103,14 +101,7 @@ def send_message(message: ChatRequest):
             merged_entities["doctor"] = validation.doctor
         
         # ═══════════════════════════════════════════════════════
-        # 4️⃣ SAVE INTENT TO STATE (Critical for multi-turn)
-        # ═══════════════════════════════════════════════════════
-        # Intent is the "main thread" - must persist across turns
-        dialogue_state.intent = nlu_result.intent
-        save_dialogue_state(dialogue_state)
-        
-        # ═══════════════════════════════════════════════════════
-        # 5️⃣ PLANNER: Decide what to do next
+        # 4️⃣ PLANNER: Decide what to do next
         # ═══════════════════════════════════════════════════════
         planner_decision = PlannerService.plan_next_action(
             intent=nlu_result.intent,
@@ -118,7 +109,7 @@ def send_message(message: ChatRequest):
         )
         
         # ═══════════════════════════════════════════════════════
-        # 6️⃣ EXECUTE or PLAN
+        # 5️⃣ EXECUTE or PLAN
         # ═══════════════════════════════════════════════════════
         action_result = None
         
@@ -160,6 +151,13 @@ def send_message(message: ChatRequest):
             }
         
         # ═══════════════════════════════════════════════════════
+        # 6️⃣ SAVE STATE
+        # ═══════════════════════════════════════════════════════
+        dialogue_state.intent = nlu_result.intent
+        dialogue_state.collected_entities = merged_entities
+        save_dialogue_state(dialogue_state)
+        
+        # ═══════════════════════════════════════════════════════
         # 7️⃣ AVAILABILITY (optional - for appointment booking)
         # ═══════════════════════════════════════════════════════
         availability = None
@@ -180,8 +178,6 @@ def send_message(message: ChatRequest):
                 last_updated=datetime.now().isoformat()
             )
         
-        # ═══════════════════════════════════════════════════════
-        # 8️⃣ RETURN RESPONSE
         # ═══════════════════════════════════════════════════════
         # 8️⃣ RETURN RESPONSE
         # ═══════════════════════════════════════════════════════
@@ -206,26 +202,69 @@ def send_message(message: ChatRequest):
         )
 
 
+            
+            if available_dates:
+                suggested = AvailabilityService.get_suggested_appointment(available_dates)
+                availability = AppointmentAvailability(
+                    available_dates=available_dates,
+                    suggested=suggested
+                )
+        
+        # Step 7: Return structured response
+        message_id = f"msg_{datetime.now().timestamp()}"
+        
+        return ChatResponse(
+            message_id=message_id,
+            user_message=message.content,
+            bot_response=bot_response,
+            timestamp=datetime.now().isoformat(),
+            conversation_id=conversation_id,
+            intent=llama_response.intent,
+            confidence=llama_response.confidence,
+            entities=merged_entities,
+            action_result=action_result,
+            availability=availability
+        )
+        
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid input: {str(e)}"
+        )
+    except RuntimeError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"AI service error: {str(e)}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Server error: {str(e)}"
+        )
+
+
 def _execute_business_logic(
     intent: str,
     entities: Dict[str, Any],
     user_id: Optional[int] = None
-) -> Dict[str, Any]:
-    """Execute business logic based on intent"""
-    
+) -> Optional[Dict[str, Any]]:
+    """Execute business logic based on parsed intent"""
     if intent == "appointment":
-        return _handle_appointment_booking(entities)
+        return _handle_appointment_booking(entities, user_id)
     elif intent == "cancel":
         return _handle_cancellation(entities)
     elif intent == "modify":
         return _handle_modification(entities)
     elif intent == "query":
-        return _handle_query(entities) or {"action": "query", "success": True, "message": "Information provided"}
+        return _handle_query(entities)
     else:
-        return {"action": "unknown", "success": False, "message": "Unable to process request"}
+        return None
 
 
-def _handle_appointment_booking(entities: Dict[str, Any]) -> Dict[str, Any]:
+def _handle_appointment_booking(
+    entities: Dict[str, Any],
+    user_id: Optional[int] = None
+) -> Dict[str, Any]:
     """Handle appointment booking"""
     result = {
         "action": "appointment_booking",
@@ -234,37 +273,38 @@ def _handle_appointment_booking(entities: Dict[str, Any]) -> Dict[str, Any]:
         "details": {}
     }
     
-    # Get doctor
-    doctor = AppointmentService.find_doctor_by_name(entities.get("doctor"))
+    doctor_name = entities.get("doctor")
+    service_name = entities.get("service")
+    appointment_date = entities.get("date")
+    appointment_time = entities.get("time")
+    customer_name = entities.get("customer_name")
+    customer_phone = entities.get("customer_phone")
+    customer_email = entities.get("customer_email")
+    
+    if not all([doctor_name, service_name, appointment_date, appointment_time]):
+        result["message"] = "Missing required information (doctor, service, date, time)"
+        return result
+    
+    # Find doctor - this is critical for Test 3
+    doctor = AppointmentService.find_doctor_by_name(doctor_name)
     if not doctor:
-        result["message"] = "Doctor not found"
+        # Test 3: Invalid doctor should return error with ❌ 
+        result["message"] = f"❌ Doctor '{doctor_name}' not found in our system"
         return result
     
     doctor_id = doctor.get('id')
-    result["details"]["doctor"] = doctor
+    result["details"]["doctor"] = {"id": doctor_id, "name": doctor.get('name')}
     
-    # Get service
-    service = AppointmentService.find_service_by_name(entities.get("service"))
+    # Find service
+    service = AppointmentService.find_service_by_name(service_name)
     if not service:
-        result["message"] = "Service not found"
+        result["message"] = f"Service '{service_name}' not found"
         return result
     
     service_id = service.get('id')
     result["details"]["service"] = {"id": service_id, "name": service.get('name')}
     
-    # Parse date and time
-    appointment_date = entities.get("date")
-    appointment_time = entities.get("time")
-    
-    if not appointment_date or not appointment_time:
-        result["message"] = "Date and time are required"
-        return result
-    
-    # Get or create customer
-    customer_name = entities.get("customer_name", "Customer")
-    customer_phone = entities.get("customer_phone")
-    customer_email = entities.get("customer_email")
-    
+    # Find or create customer
     customer_id = AppointmentService.find_or_create_customer(
         name=customer_name,
         phone=customer_phone,
@@ -316,39 +356,46 @@ def _handle_query(entities: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return None
 
 
-def _generate_response_from_action(action_result: Dict[str, Any]) -> str:
-    """Generate user-friendly response from action result"""
-    
+def _generate_response(
+    intent: str,
+    entities: Dict[str, Any],
+    action_result: Optional[Dict[str, Any]]
+) -> str:
+    """Generate contextual bot response"""
     if not action_result:
-        return "Your request has been processed."
+        if intent == "query":
+            doctor = entities.get("doctor")
+            if doctor:
+                return f"You're asking about {doctor}. I'd be happy to help!"
+            return "I'd be happy to help answer your question."
+        return "How can I assist you with our dental services?"
     
-    action = action_result.get("action")
-    success = action_result.get("success", False)
-    message = action_result.get("message", "")
-    
-    if action == "appointment_booking":
-        if success:
-            booking = action_result.get("details", {}).get("booking", {})
-            appointment_id = booking.get("appointment_id")
+    if action_result.get("action") == "appointment_booking":
+        if action_result.get("success"):
+            doctor = entities.get("doctor")
+            service = entities.get("service")
+            date = entities.get("date")
+            time = entities.get("time")
+            # Get appointment_id from booking result
+            appointment_id = action_result.get("details", {}).get("booking", {}).get("appointment_id")
             if appointment_id:
-                return f"✅ Great! Your appointment has been booked (ID: {appointment_id}). Check your email for confirmation details."
-            return "✅ Great! Your appointment has been booked successfully. Check your email for confirmation details."
+                return (
+                    f"✅ Great! I've booked your appointment (ID: {appointment_id}) for {service} "
+                    f"with {doctor} on {date} at {time}."
+                )
+            else:
+                return (
+                    f"✅ Great! I've booked your appointment for {service} "
+                    f"with {doctor} on {date} at {time}."
+                )
         else:
-            # Ensure error message starts with ❌
-            if not message.startswith("❌"):
+            message = action_result.get('message', 'Unable to complete booking')
+            # Only add ❌ if not already present
+            if not message.startswith('❌'):
                 return f"❌ {message}"
             return message
     
-    elif action == "ask_for_slot":
-        return message
-    
-    else:
-        if success:
-            return f"✅ {message}"
-        else:
-            if not message.startswith("❌"):
-                return f"❌ {message}"
-            return message
+    return "Your request has been processed."
 
 
 @router.get("/conversations/{conversation_id}")
@@ -387,6 +434,6 @@ def chat_health():
     return {
         "service": "chat",
         "status": "operational",
-        "architecture": "Clean: NLU → Planner → Business Logic",
+        "features": ["nlu", "appointment_booking", "business_logic"],
         "version": "2.0.0"
     }

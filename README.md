@@ -33,23 +33,7 @@ An AI-powered appointment scheduling system for dental clinics with intelligent 
 
 ---
 
-## � System Interface Gallery
-
-### 1. API Documentation Dashboard
-![API Documentation - ReDoc Interface](images/01-api-documentation-redoc.png)
-*Interactive API documentation showing all endpoints and response schemas. Access at: `http://localhost:8000/redoc`*
-
-### 2. Database Management Interface
-![Database - Customers Table View](images/02-database-customers-table.png)
-*SQLite database viewer showing sample customer data with 15+ pre-loaded test records*
-
-### 3. Appointment Booking Chat Interface
-![Chat Interface - Appointment Booking Dialog](images/03-chat-interface-appointment-booking.png)
-*Conversational interface for booking appointments with doctor selection, date picker, and time slots*
-
----
-
-## �📁 Project Structure
+## 📁 Project Structure
 
 ```
 AI-customer-service/
